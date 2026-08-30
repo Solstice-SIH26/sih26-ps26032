@@ -1,0 +1,434 @@
+/*
+ * FarmerDashboard.css
+ * ───────────────────────────────────────────────────────────────────
+ * Page-specific styles for the Farmer Dashboard.
+ *
+ * All class names use the "farmer-dash" prefix (BEM-style) to avoid
+ * conflicts with other developers' components across the project.
+ * ───────────────────────────────────────────────────────────────────
+ */
+
+
+/* ─── Scoped design tokens ──────────────────────────────────────── */
+
+.farmer-dash {
+  --fd-primary: #1a6b3c;
+  --fd-primary-dark: #145530;
+  --fd-primary-light: #e8f5e9;
+  --fd-bg: #f5f3ef;
+  --fd-card-bg: #ffffff;
+  --fd-card-border: #e0dcd4;
+  --fd-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --fd-text: #2d2d2d;
+  --fd-text-secondary: #5a5a5a;
+  --fd-text-muted: #888888;
+  --fd-green: #2e7d32;
+  --fd-amber: #e65100;
+  --fd-red: #c62828;
+  --fd-blue: #1565c0;
+  --fd-row-border: #f0ede8;
+  --fd-radius: 8px;
+
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  color: var(--fd-text);
+  line-height: 1.5;
+}
+
+
+/* ─── Header ─────────────────────────────────────────────────────── */
+
+.farmer-dash__header {
+  margin-bottom: 32px;
+}
+
+.farmer-dash__title {
+  font-size: 28px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: var(--fd-primary-dark);
+}
+
+.farmer-dash__subtitle {
+  font-size: 15px;
+  color: var(--fd-text-secondary);
+  margin: 0;
+}
+
+
+/* ─── Section ────────────────────────────────────────────────────── */
+
+.farmer-dash__section {
+  margin-bottom: 24px;
+}
+
+.farmer-dash__section-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--fd-text);
+  margin: 0 0 12px;
+  letter-spacing: 0.01em;
+}
+
+
+/* ─── Card ───────────────────────────────────────────────────────── */
+
+.farmer-dash__card {
+  background: var(--fd-card-bg);
+  border: 1px solid var(--fd-card-border);
+  border-radius: var(--fd-radius);
+  padding: 20px 24px;
+  box-shadow: var(--fd-card-shadow);
+}
+
+
+/* ─── Token card (emphasized with left border) ───────────────────── */
+
+.farmer-dash__token-card {
+  border-left: 4px solid var(--fd-primary);
+}
+
+.farmer-dash__token-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.farmer-dash__token-number {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--fd-primary);
+  letter-spacing: -0.5px;
+}
+
+
+/* ─── Status badge ───────────────────────────────────────────────── */
+/* Uses a dot + text so status is not conveyed by color alone.        */
+
+.farmer-dash__status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.farmer-dash__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Waiting — amber */
+.farmer-dash__status-badge--waiting {
+  background: #fff3e0;
+  color: var(--fd-amber);
+}
+.farmer-dash__status-badge--waiting .farmer-dash__status-dot {
+  background: var(--fd-amber);
+}
+
+/* Open — green */
+.farmer-dash__status-badge--open {
+  background: var(--fd-primary-light);
+  color: var(--fd-green);
+}
+.farmer-dash__status-badge--open .farmer-dash__status-dot {
+  background: var(--fd-green);
+}
+
+/* Closed — red */
+.farmer-dash__status-badge--closed {
+  background: #ffebee;
+  color: var(--fd-red);
+}
+.farmer-dash__status-badge--closed .farmer-dash__status-dot {
+  background: var(--fd-red);
+}
+
+/* Called — blue */
+.farmer-dash__status-badge--called {
+  background: #e3f2fd;
+  color: var(--fd-blue);
+}
+.farmer-dash__status-badge--called .farmer-dash__status-dot {
+  background: var(--fd-blue);
+}
+
+/* Completed — green */
+.farmer-dash__status-badge--completed {
+  background: var(--fd-primary-light);
+  color: var(--fd-green);
+}
+.farmer-dash__status-badge--completed .farmer-dash__status-dot {
+  background: var(--fd-green);
+}
+
+/* Cancelled — red */
+.farmer-dash__status-badge--cancelled {
+  background: #ffebee;
+  color: var(--fd-red);
+}
+.farmer-dash__status-badge--cancelled .farmer-dash__status-dot {
+  background: var(--fd-red);
+}
+
+
+/* ─── Detail rows (definition list) ──────────────────────────────── */
+
+.farmer-dash__token-details,
+.farmer-dash__schedule-details {
+  margin: 0;
+}
+
+.farmer-dash__detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--fd-row-border);
+  gap: 12px;
+}
+
+.farmer-dash__detail-row:last-child {
+  border-bottom: none;
+}
+
+.farmer-dash__detail-row dt {
+  font-size: 14px;
+  color: var(--fd-text-secondary);
+  flex-shrink: 0;
+}
+
+.farmer-dash__detail-row dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fd-text);
+  text-align: right;
+}
+
+
+/* ─── Primary button ─────────────────────────────────────────────── */
+
+.farmer-dash__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 10px 24px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  margin-top: 16px;
+  transition: background-color 0.15s ease;
+}
+
+.farmer-dash__btn--primary {
+  background: var(--fd-primary);
+  color: #ffffff;
+}
+
+.farmer-dash__btn--primary:hover:not(:disabled) {
+  background: var(--fd-primary-dark);
+}
+
+.farmer-dash__btn--primary:focus-visible {
+  outline: 2px solid var(--fd-primary);
+  outline-offset: 2px;
+}
+
+.farmer-dash__btn--primary:disabled {
+  background: #a5d6a7;
+  color: #fff;
+  cursor: default;
+}
+
+
+/* ─── Placeholder notice ─────────────────────────────────────────── */
+
+.farmer-dash__placeholder-notice {
+  font-size: 13px;
+  color: var(--fd-text-muted);
+  margin: 12px 0 0;
+  font-style: italic;
+}
+
+
+/* ─── Center selector ────────────────────────────────────────────── */
+
+.farmer-dash__center-select-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.farmer-dash__center-select-label {
+  font-size: 14px;
+  color: var(--fd-text-secondary);
+  flex-shrink: 0;
+}
+
+.farmer-dash__center-select {
+  flex: 1;
+  font-size: 14px;
+  font-family: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--fd-card-border);
+  border-radius: 5px;
+  background: var(--fd-card-bg);
+  color: var(--fd-text);
+  min-width: 0;
+}
+
+.farmer-dash__center-select:focus-visible {
+  outline: 2px solid var(--fd-primary);
+  outline-offset: 1px;
+}
+
+
+/* ─── Loading / error / empty states ─────────────────────────────── */
+
+.farmer-dash__loading-msg {
+  font-size: 14px;
+  color: var(--fd-text-secondary);
+  margin: 8px 0;
+  font-style: italic;
+}
+
+.farmer-dash__error-msg {
+  font-size: 14px;
+  color: var(--fd-red);
+  background: #ffebee;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+
+.farmer-dash__empty-state {
+  font-size: 14px;
+  color: var(--fd-text-secondary);
+  margin: 8px 0;
+}
+
+
+/* ─── Bottom grid (Schedule + Prices side by side on desktop) ───── */
+
+.farmer-dash__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.farmer-dash__grid .farmer-dash__section {
+  margin-bottom: 0;
+}
+
+
+/* ─── Crop price table ───────────────────────────────────────────── */
+
+.farmer-dash__price-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.farmer-dash__price-table th {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fd-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 0 10px;
+  border-bottom: 2px solid var(--fd-card-border);
+}
+
+.farmer-dash__price-table th:last-child {
+  text-align: right;
+}
+
+.farmer-dash__price-table td {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--fd-row-border);
+}
+
+.farmer-dash__price-table tr:last-child td {
+  border-bottom: none;
+}
+
+.farmer-dash__price-value {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fd-primary);
+}
+
+
+/* ─── Responsive: tablet ─────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .farmer-dash {
+    padding: 24px 16px 40px;
+  }
+
+  .farmer-dash__title {
+    font-size: 24px;
+  }
+
+  .farmer-dash__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .farmer-dash__token-number {
+    font-size: 28px;
+  }
+
+  .farmer-dash__card {
+    padding: 16px 18px;
+  }
+}
+
+
+/* ─── Responsive: mobile ─────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .farmer-dash {
+    padding: 16px 12px 32px;
+  }
+
+  .farmer-dash__title {
+    font-size: 22px;
+  }
+
+  .farmer-dash__subtitle {
+    font-size: 14px;
+  }
+
+  .farmer-dash__detail-row {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .farmer-dash__detail-row dd {
+    text-align: left;
+  }
+
+  .farmer-dash__btn {
+    width: 100%;
+  }
+}
