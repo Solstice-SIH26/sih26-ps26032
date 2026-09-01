@@ -58,14 +58,16 @@ function formatPrice(amount) {
  * communicated by color alone.
  */
 function StatusBadge({ status }) {
-  const modifier = status.toLowerCase().replace(/\s+/g, '-')
+  const safeStatus = status || 'Unknown'
+  const modifier = safeStatus.toLowerCase().replace(/\s+/g, '-')
+
   return (
     <span
       className={`farmer-dash__status-badge farmer-dash__status-badge--${modifier}`}
       role="status"
     >
       <span className="farmer-dash__status-dot" aria-hidden="true" />
-      {status}
+      {safeStatus}
     </span>
   )
 }
@@ -73,7 +75,10 @@ function StatusBadge({ status }) {
 
 function FarmerDashboard() {
   /* ── Token state ────────────────────────────────────────────────── */
-  const [token, setToken] = useState(null)
+  const [token, setToken] = useState(() => {
+    const savedTokenId = localStorage.getItem('farmerTokenId')
+    return savedTokenId ? { id: savedTokenId } : null
+  })
   const [tokenLoading, setTokenLoading] = useState(false)
   const [tokenError, setTokenError] = useState(null)
   const [isRefreshingToken, setIsRefreshingToken] = useState(false)
@@ -149,6 +154,9 @@ function FarmerDashboard() {
 
     try {
       const newToken = await requestToken(DEMO_FARMER_ID, selectedCenterId)
+
+      localStorage.setItem('farmerTokenId', newToken.id)
+
       setToken({
         id: newToken.id,
         tokenNumber: newToken.token_number,
@@ -175,6 +183,7 @@ function FarmerDashboard() {
 
     try {
       const refreshedToken = await getToken(token.id)
+
       setToken({
         id: refreshedToken.id,
         tokenNumber: refreshedToken.token_number,
@@ -191,6 +200,57 @@ function FarmerDashboard() {
       setIsRefreshingToken(false)
     }
   }, [token])
+
+
+  /* ── Restore saved token on page load ───────────────────────────── */
+  useEffect(() => {
+    const savedTokenId = localStorage.getItem('farmerTokenId')
+
+    if (!savedTokenId) return
+
+    let cancelled = false
+
+    async function loadSavedToken() {
+      try {
+        const savedToken = await getToken(savedTokenId)
+
+        if (cancelled) return
+
+        setToken({
+          id: savedToken.id,
+          tokenNumber: savedToken.token_number,
+          status: savedToken.status,
+          centerId: savedToken.center_id,
+        })
+      } catch {
+        if (cancelled) return
+
+        localStorage.removeItem('farmerTokenId')
+        setToken(null)
+      }
+    }
+
+    loadSavedToken()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+
+  /* ── Automatically refresh token status every 10 seconds ───────── */
+  useEffect(() => {
+    if (!token) return
+
+    const intervalId = setInterval(() => {
+      handleRefreshToken()
+    }, 10000)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [token, handleRefreshToken])
+
 
   /** Resolve a center name from our loaded centers list */
   function centerName(centerId) {
