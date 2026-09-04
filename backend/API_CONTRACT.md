@@ -1,49 +1,54 @@
-# API Contract — SIH PS26032 Backend (current state)
+# API Contract — SIH PS26032 Backend (v3: pending/approve workflow)
 
-This reflects what the backend actually does right now, not a target design.
 Base URL during dev: `http://localhost:8000`
 
 ## Auth
 
-**None implemented yet.** No headers, no tokens, no cookies required on any
-endpoint below. `farmer_id` / `center_id` are passed directly by the client.
-This is temporary — see the team notes from the build session. Do not build
-header-passing logic for auth yet; there's nothing on the backend to receive it.
+**None implemented yet.** No headers, tokens, or cookies required on any
+endpoint below — including admin ones. IDs are passed directly by the
+client. JWT verification (Supabase Auth) is planned once login is working
+on the auth side.
 
 ---
 
 ## 1. Token statuses (exact enum)
 
-Backend enum (`Literal` type, enforced by a Postgres `check` constraint too):
+| Value | Meaning | Set by |
+|---|---|---|
+| `pending` | Farmer submitted a request, awaiting staff review | `POST /tokens` (default) |
+| `waiting` | Staff approved it — has a `token_number` and `time_slot` now | `PATCH /tokens/{id}/approve` |
+| `called` | Staff has called this token up | `PATCH /tokens/{id}/status` |
+| `completed` | Transaction done | `PATCH /tokens/{id}/status` |
+| `rejected` | Staff declined the pending request | `PATCH /tokens/{id}/reject` |
+| `cancelled` | Farmer or staff cancelled (only from `pending`/`waiting`) | `PATCH /tokens/{id}/cancel` |
 
-| Value | Meaning |
-|---|---|
-| `waiting` | Token created, farmer waiting in line |
-| `called` | Staff has called this token up |
-| `completed` | Transaction done |
-| `cancelled` | Token voided (no-show, farmer left, etc.) |
-
-There is **no `processing` status**. Any status string outside these four is
-rejected by FastAPI request validation (422) before it reaches the database.
+Flow: `pending → waiting → called → completed`, with `pending → rejected`
+and `pending`/`waiting` → `cancelled` as off-ramps.
 
 ---
 
 ## 2. Endpoints
 
 ### `POST /tokens`
-Farmer requests a token at a center.
+Farmer submits a procurement request. **Does not join the queue directly** — goes to `pending` for staff review.
 
 **Request body** (all required):
 ```json
 {
   "farmer_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "center_id": "9c858901-8a57-4791-81fe-4c455b099bc9"
+  "center_id": "9c858901-8a57-4791-81fe-4c455b099bc9",
+  "requested_date": "2026-09-10",
+  "crop_type": "Wheat",
+  "quantity_kg": 500
 }
 ```
 | Field | Type | Required |
 |---|---|---|
 | `farmer_id` | UUID string | yes |
 | `center_id` | UUID string | yes |
+| `requested_date` | date string `YYYY-MM-DD` | yes |
+| `crop_type` | string | yes |
+| `quantity_kg` | number | yes |
 
 **Success response — `200 OK`:**
 ```json
@@ -51,151 +56,129 @@ Farmer requests a token at a center.
   "id": "a1b2c3d4-...",
   "farmer_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "center_id": "9c858901-8a57-4791-81fe-4c455b099bc9",
-  "token_number": 4,
-  "status": "waiting",
+  "requested_date": "2026-09-10",
+  "crop_type": "Wheat",
+  "quantity_kg": 500,
+  "token_number": null,
+  "time_slot": null,
+  "status": "pending",
   "created_at": "2026-08-28T09:15:00.123456+00:00",
   "updated_at": "2026-08-28T09:15:00.123456+00:00"
 }
 ```
-`token_number` is server-assigned (count of that center's tokens created
-today, + 1) — the client never sends it.
+`token_number` and `time_slot` are **`null`** until approved — the frontend should handle this, not assume they're always populated.
 
 **Error responses:**
-- `422 Unprocessable Entity` — missing/invalid `farmer_id` or `center_id` (bad UUID, wrong type). Standard FastAPI shape:
-  ```json
-  { "detail": [ { "loc": ["body","farmer_id"], "msg": "...", "type": "..." } ] }
-  ```
-- `500 Internal Server Error` — insert failed: `{"detail": "Could not create token"}`
+- `400 Bad Request` — one of:
+  - `{"detail": "farmer_id or center_id does not exist"}` (bad foreign key)
+  - `{"detail": "You already have an active request for 2026-09-10."}` (one-per-day rule)
+  - `{"detail": "You already have 3 active requests. Cancel one before submitting a new request."}` (max-3-active rule)
+- `422 Unprocessable Entity` — missing/invalid field or wrong type
+- `500 Internal Server Error` — `{"detail": "Could not create request"}`
 
 ---
 
 ### `GET /tokens/{id}`
-Farmer checks their token's current status. `{id}` = token UUID in the URL path.
+Farmer checks their request/token status. Same response shape as `POST /tokens` above, reflecting current state (`token_number`/`time_slot` populated once approved).
 
-**Request:** no body, no query params.
+**Errors:** `404` `{"detail": "Token not found"}`; `422` bad UUID.
 
-**Success response — `200 OK`:** same shape as the `POST /tokens` response above.
+---
+
+### `PATCH /tokens/{id}/approve`
+Staff approves a pending request. **No request body.**
+
+**Success response — `200 OK`:** full token object with `status: "waiting"`, `token_number` and `time_slot` now populated, e.g.:
+```json
+{ "...": "...", "status": "waiting", "token_number": 3, "time_slot": "09:50" }
+```
 
 **Error responses:**
 - `404 Not Found` — `{"detail": "Token not found"}`
-- `422` — `{id}` isn't a valid UUID
+- `400 Bad Request`:
+  - `{"detail": "Only pending requests can be approved (current status: waiting)."}` — wrong current state
+  - `{"detail": "Approving this request (500.0kg) would exceed the center's daily capacity (4800.0kg already approved / 5000.0kg limit for 2026-09-10)."}` — capacity exceeded
+
+---
+
+### `PATCH /tokens/{id}/reject`
+Staff rejects a pending request. **No request body.**
+
+**Success — `200 OK`:** token object with `status: "rejected"`.
+**Errors:** `404` not found; `400` `{"detail": "Only pending requests can be rejected (current status: ...)."}`
+
+---
+
+### `PATCH /tokens/{id}/cancel`
+Farmer or staff cancels. Works from `pending` or `waiting` only. **No request body.**
+
+**Success — `200 OK`:** token object with `status: "cancelled"`.
+**Errors:** `404` not found; `400` `{"detail": "Only pending or waiting requests can be cancelled (current status: ...)."}`
 
 ---
 
 ### `PATCH /tokens/{id}/status`
-Staff updates a token's status.
+Staff progresses an **already-approved** token through the physical queue. **Only two transitions are accepted: `waiting→called` and `called→completed`.** Everything else (approve/reject/cancel) must use the dedicated endpoints above.
 
 **Request body:**
 ```json
 { "status": "called" }
 ```
-| Field | Type | Required |
-|---|---|---|
-| `status` | one of `waiting`/`called`/`completed`/`cancelled` | yes |
 
-**Success response — `200 OK`:** full token object, same shape as above, with `status` and `updated_at` reflecting the change.
-
-**Error responses:**
-- `404 Not Found` — `{"detail": "Token not found"}`
-- `422` — invalid status value (anything outside the 4 above) or bad UUID
-
-**Note:** there is currently no restriction on transition order — you can
-technically PATCH a `completed` token back to `waiting`. Nothing enforces
-sequence on the backend today.
+**Success — `200 OK`:** updated token object.
+**Errors:**
+- `404` not found
+- `400` `{"detail": "Cannot move token from 'pending' to 'called' via this endpoint. Use /approve, /reject, or /cancel for other transitions."}`
 
 ---
 
 ### `GET /centers`
-Farmer/staff browse all active centers.
-
-**Query params (all optional):**
-| Param | Type | Effect |
-|---|---|---|
-| `crop_type` | string | filters centers to that crop type (exact match) |
-
-**Success response — `200 OK`:** array of center objects (see field table below).
+Unchanged behavior. Optional `?crop_type=` filter. Response now includes `daily_capacity_kg`:
 ```json
 [
   {
-    "id": "9c858901-8a57-4791-81fe-4c455b099bc9",
+    "id": "9c858901-...",
     "name": "Karnal Mandi Center 3",
     "location": "Karnal, Haryana",
     "crop_type": "Wheat",
     "msp_rate": 2425.00,
     "open_date": "2026-09-01",
     "close_date": "2026-09-15",
+    "daily_capacity_kg": 5000,
     "is_active": true
   }
 ]
 ```
-Only centers with `is_active = true` are ever returned by this endpoint —
-there's no query param to include inactive ones. Empty array (`[]`, still `200`) if none match.
-
----
 
 ### `GET /centers/{id}`
-Single center detail. `{id}` = center UUID in the URL path.
+Same shape as one item above. `404` if not found.
 
-**Success response — `200 OK`:** single center object, same shape as one item from `GET /centers` above.
-
-**Error responses:**
-- `404 Not Found` — `{"detail": "Center not found"}`
-- `422` — bad UUID
-
----
+### `POST /centers` / `PATCH /centers/{id}`
+Admin center management — unchanged from last version except the body now accepts/returns `daily_capacity_kg` (defaults to `5000` if omitted on create).
 
 ### `GET /centers/{id}/queue`
-Staff view of a center's token queue, ordered by `token_number` ascending.
+Unchanged URL. `?status=` now accepts any of the 6 statuses — e.g. `?status=pending` to see the approval queue, `?status=waiting` to see who's up next. Ordered by `token_number` (approved tokens first, in order), then `created_at` (pending requests, oldest first).
 
-**Query params (optional):**
-| Param | Type | Effect |
-|---|---|---|
-| `status` | one of `waiting`/`called`/`completed`/`cancelled` | filters queue to only that status |
-
-**Success response — `200 OK`:** array of token objects (same shape as `POST /tokens` response).
-```json
-[
-  { "id": "...", "farmer_id": "...", "center_id": "...", "token_number": 1, "status": "waiting", "created_at": "...", "updated_at": "..." },
-  { "id": "...", "farmer_id": "...", "center_id": "...", "token_number": 2, "status": "waiting", "created_at": "...", "updated_at": "..." }
-]
-```
-Empty array (`[]`, still `200`) if the queue is empty.
+### `GET /users`
+Unchanged. `?role=admin|procurement|farmer` optional filter.
 
 ---
 
-## 3. "Call next" flow
+## 3. Capacity check — exact logic
 
-**There is no dedicated `/call-next` endpoint.** The flow is exactly your
-option 1:
+On `PATCH /tokens/{id}/approve`:
+1. Sum `quantity_kg` of all tokens for the same `center_id` + `requested_date` that are already in `waiting`, `called`, or `completed` (i.e. already approved — `pending` requests don't count yet).
+2. If `sum + this_request.quantity_kg > center.daily_capacity_kg` → `400`, nothing changes.
+3. Otherwise → token gets `token_number = (count of already-approved) + 1`, `time_slot` assigned by that same position (see below), status → `waiting`.
 
-1. `GET /centers/{id}/queue?status=waiting` — this returns only waiting
-   tokens, already sorted by `token_number` ascending. The frontend does
-   **not** need to fetch the whole queue and filter client-side — the
-   `?status=waiting` param does that server-side.
-2. Take the first item in the returned array — that's the next token.
-3. `PATCH /tokens/{that_token_id}/status` with `{"status": "called"}`.
+Rejecting or cancelling a token removes it from this sum automatically — no separate "freeing" step exists or is needed.
 
-**Known gap:** there's no locking between steps 1–3. If staff double-click
-"call next" quickly, or two staff members hit it at once, both could read
-the same "first waiting" token before either PATCH lands. Not addressed yet
-— acceptable for a demo, worth knowing if judges stress-test it.
+## 4. Time slot assignment — exact logic
 
----
+Fixed-interval spacing in **approval order**, not a scheduling algorithm:
+- First approval for a given center+date → `09:00`
+- Second → `09:25`
+- Third → `09:50`
+- ... i.e. `09:00 + (approval_position - 1) × 25 minutes`
 
-## 4. Center fields — exact reference
-
-| Field | Type | Example | Notes |
-|---|---|---|---|
-| `id` | UUID string | `"9c858901-..."` | primary key |
-| `name` | string | `"Karnal Mandi Center 3"` | |
-| `location` | string \| null | `"Karnal, Haryana"` | free text, nullable |
-| `crop_type` | string | `"Wheat"` | single crop per center, not a list |
-| `msp_rate` | number (float) | `2425.00` | price per unit; unit itself isn't stored — confirm with team what unit MSP is quoted in for display |
-| `open_date` | string (`YYYY-MM-DD`) \| null | `"2026-09-01"` | date only, no time-of-day field exists |
-| `close_date` | string (`YYYY-MM-DD`) \| null | `"2026-09-15"` | date only |
-| `is_active` | boolean | `true` | only `true` centers appear in `GET /centers` |
-
-There is **no separate "current availability" or "open now" boolean** — if
-you need "is this center open today," the frontend will need to compare
-`open_date`/`close_date` against today's date itself; the backend doesn't
-compute or return that.
+Not configurable per center yet. If your team wants different spacing or center-specific hours, that's a small follow-up change — ask.
