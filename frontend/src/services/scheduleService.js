@@ -55,3 +55,17 @@ export async function getCenterQueue(centerId, status) {
     `/centers/${encodeURIComponent(centerId)}/queue${query ? `?${query}` : ''}`
   )
 }
+
+/**
+ * Update the status of a token.
+ *
+ * @param {string} tokenId
+ * @param {"waiting"|"called"|"completed"|"cancelled"} status
+ * @returns {Promise<Object>} updated token
+ */
+export async function updateTokenStatus(tokenId, status) {
+  return apiFetch(`/tokens/${encodeURIComponent(tokenId)}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  })
+}
