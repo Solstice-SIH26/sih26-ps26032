@@ -6,56 +6,54 @@ import { getCenters } from '../../services/scheduleService.js'
 import { getCropPrices } from '../../services/priceService.js'
 
 /*
- * ─── TEMPORARY DEMO VALUES ──────────────────────────────────────────
- * Authentication does not exist yet (team leader's responsibility).
- * The farmer UUID below is a syntactically valid placeholder so
- * POST /tokens does not 422. Replace with real identity once auth lands.
- * ─────────────────────────────────────────────────────────────────────
+ * TEMPORARY DEMO VALUE
+ * Replace with the authenticated farmer ID once auth is connected.
  */
-const DEMO_FARMER_ID = 'd1376198-a857-4729-84ff-947e1fe82ca6'
-
+const DEMO_FARMER_ID = 'd8d7e3ce-2f36-4292-bf66-f748fa91ed4e'
 
 /**
- * Map a lowercase backend status to a human-readable display label.
- * Backend statuses: waiting, called, completed, cancelled
+ * Map backend status to a human-readable label.
  */
 const STATUS_LABELS = {
+  pending: 'Pending Approval',
   waiting: 'Waiting',
   called: 'Called',
   completed: 'Completed',
+  rejected: 'Rejected',
   cancelled: 'Cancelled',
 }
 
 function displayStatus(backendStatus) {
-  return STATUS_LABELS[backendStatus] || backendStatus
+  return STATUS_LABELS[backendStatus] || backendStatus || 'Unknown'
 }
 
 
 /**
- * Determine if a center is currently open based on open_date / close_date.
- * Both are date strings (YYYY-MM-DD). Returns true if today falls within
- * the inclusive [open_date, close_date] range.
+ * Determine if a center is currently open.
  */
 function isCenterOpen(openDate, closeDate) {
   if (!openDate || !closeDate) return false
+
   const today = new Date()
   today.setHours(0, 0, 0, 0)
+
   const open = new Date(openDate + 'T00:00:00')
   const close = new Date(closeDate + 'T23:59:59')
+
   return today >= open && today <= close
 }
 
 
-/** Format a number as Indian Rupee with locale grouping (e.g. ₹2,275) */
+/**
+ * Format number as Indian Rupee.
+ */
 function formatPrice(amount) {
   return `₹${amount.toLocaleString('en-IN')}`
 }
 
 
 /**
- * StatusBadge — small local component for status indicators.
- * Uses both a colored dot AND text label so status is never
- * communicated by color alone.
+ * Status badge.
  */
 function StatusBadge({ status }) {
   const safeStatus = status || 'Unknown'
@@ -74,163 +72,90 @@ function StatusBadge({ status }) {
 
 
 function FarmerDashboard() {
-  /* ── Token state ────────────────────────────────────────────────── */
+
+  /* ─────────────────────────────────────────────
+     TOKEN / PROCUREMENT REQUEST STATE
+  ───────────────────────────────────────────── */
+
   const [token, setToken] = useState(() => {
     const savedTokenId = localStorage.getItem('farmerTokenId')
     return savedTokenId ? { id: savedTokenId } : null
   })
+
   const [tokenLoading, setTokenLoading] = useState(false)
   const [tokenError, setTokenError] = useState(null)
   const [isRefreshingToken, setIsRefreshingToken] = useState(false)
 
-  /* ── Centers state ──────────────────────────────────────────────── */
+
+  /* ─────────────────────────────────────────────
+     CENTER STATE
+  ───────────────────────────────────────────── */
+
   const [centers, setCenters] = useState([])
   const [centersLoading, setCentersLoading] = useState(true)
   const [centersError, setCentersError] = useState(null)
   const [selectedCenterId, setSelectedCenterId] = useState('')
 
-  /* ── Crop prices state ──────────────────────────────────────────── */
+
+  /* ─────────────────────────────────────────────
+     NEW PROCUREMENT REQUEST FIELDS
+  ───────────────────────────────────────────── */
+
+  const [requestedDate, setRequestedDate] = useState('')
+  const [quantityKg, setQuantityKg] = useState('')
+
+
+  /* ─────────────────────────────────────────────
+     CROP PRICES
+  ───────────────────────────────────────────── */
+
   const [prices, setPrices] = useState([])
   const [pricesLoading, setPricesLoading] = useState(true)
 
-  /* ── Derived: selected center object ────────────────────────────── */
-  const selectedCenter = centers.find((c) => c.id === selectedCenterId) || null
 
-  /* ── Fetch centers on mount ─────────────────────────────────────── */
+  /* Selected center object */
+
+  const selectedCenter =
+    centers.find((c) => c.id === selectedCenterId) || null
+
+
+  /* ─────────────────────────────────────────────
+     LOAD CENTERS
+  ───────────────────────────────────────────── */
+
   useEffect(() => {
     let cancelled = false
 
     async function loadCenters() {
       try {
         const data = await getCenters()
+
         if (cancelled) return
 
         if (data && data.length > 0) {
           setCenters(data)
-          // Auto-select the first center
+
+          // Automatically select first center
           setSelectedCenterId(data[0].id)
         } else {
           setCenters([])
         }
+
       } catch {
         if (cancelled) return
-        setCentersError('Unable to load procurement centers.')
+
+        setCentersError(
+          'Unable to load procurement centers.'
+        )
+
       } finally {
-        if (!cancelled) setCentersLoading(false)
+        if (!cancelled) {
+          setCentersLoading(false)
+        }
       }
     }
 
     loadCenters()
-    return () => { cancelled = true }
-  }, [])
-
-  /* ── Fetch crop prices on mount ─────────────────────────────────── */
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadPrices() {
-      try {
-        const data = await getCropPrices()
-        if (cancelled) return
-        setPrices(data && data.length > 0 ? data : [])
-      } catch {
-        if (cancelled) return
-        setPrices([])
-      } finally {
-        if (!cancelled) setPricesLoading(false)
-      }
-    }
-
-    loadPrices()
-    return () => { cancelled = true }
-  }, [])
-
-  /* ── Request a new token ────────────────────────────────────────── */
-  const handleRequestToken = useCallback(async () => {
-    if (!selectedCenterId) return
-
-    setTokenLoading(true)
-    setTokenError(null)
-
-    try {
-      const newToken = await requestToken(DEMO_FARMER_ID, selectedCenterId)
-
-      localStorage.setItem('farmerTokenId', newToken.id)
-
-      setToken({
-        id: newToken.id,
-        tokenNumber: newToken.token_number,
-        status: newToken.status,
-        centerId: newToken.center_id,
-      })
-    } catch (err) {
-      setTokenError(
-        err.status
-          ? `Request failed (${err.status}). Please try again.`
-          : 'Unable to reach the server. Please try again later.'
-      )
-    } finally {
-      setTokenLoading(false)
-    }
-  }, [selectedCenterId])
-
-  /* ── Refresh token status ───────────────────────────────────────── */
-  const handleRefreshToken = useCallback(async () => {
-    if (!token) return
-
-    setIsRefreshingToken(true)
-    setTokenError(null)
-
-    try {
-      const refreshedToken = await getToken(token.id)
-
-      setToken({
-        id: refreshedToken.id,
-        tokenNumber: refreshedToken.token_number,
-        status: refreshedToken.status,
-        centerId: refreshedToken.center_id,
-      })
-    } catch (err) {
-      setTokenError(
-        err.status
-          ? `Refresh failed (${err.status}). Please try again.`
-          : 'Unable to reach the server. Please try again later.'
-      )
-    } finally {
-      setIsRefreshingToken(false)
-    }
-  }, [token])
-
-
-  /* ── Restore saved token on page load ───────────────────────────── */
-  useEffect(() => {
-    const savedTokenId = localStorage.getItem('farmerTokenId')
-
-    if (!savedTokenId) return
-
-    let cancelled = false
-
-    async function loadSavedToken() {
-      try {
-        const savedToken = await getToken(savedTokenId)
-
-        if (cancelled) return
-
-        setToken({
-          id: savedToken.id,
-          tokenNumber: savedToken.token_number,
-          status: savedToken.status,
-          centerId: savedToken.center_id,
-        })
-      } catch {
-        if (cancelled) return
-
-        localStorage.removeItem('farmerTokenId')
-        setToken(null)
-      }
-    }
-
-    loadSavedToken()
 
     return () => {
       cancelled = true
@@ -238,8 +163,278 @@ function FarmerDashboard() {
   }, [])
 
 
-  /* ── Automatically refresh token status every 10 seconds ───────── */
+  /* ─────────────────────────────────────────────
+     LOAD CROP PRICES
+  ───────────────────────────────────────────── */
+
   useEffect(() => {
+    let cancelled = false
+
+    async function loadPrices() {
+      try {
+        const data = await getCropPrices()
+
+        if (cancelled) return
+
+        setPrices(
+          data && data.length > 0
+            ? data
+            : []
+        )
+
+      } catch {
+        if (cancelled) return
+
+        setPrices([])
+
+      } finally {
+        if (!cancelled) {
+          setPricesLoading(false)
+        }
+      }
+    }
+
+    loadPrices()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+
+  /* ─────────────────────────────────────────────
+     REQUEST PROCUREMENT
+  ───────────────────────────────────────────── */
+
+  const handleRequestToken = useCallback(async () => {
+
+    /*
+     * Validate required fields.
+     */
+    if (
+      !selectedCenterId ||
+      !requestedDate ||
+      !quantityKg
+    ) {
+      setTokenError(
+        'Please select a center, date, and quantity.'
+      )
+
+      return
+    }
+
+
+    /*
+     * Quantity must be positive.
+     */
+    const quantity = Number(quantityKg)
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setTokenError(
+        'Quantity must be greater than 0 kg.'
+      )
+
+      return
+    }
+
+
+    setTokenLoading(true)
+    setTokenError(null)
+
+
+    try {
+
+      /*
+       * IMPORTANT:
+       *
+       * New backend expects:
+       *
+       * farmerId
+       * centerId
+       * requestedDate
+       * cropType
+       * quantityKg
+       */
+
+      const newToken = await requestToken(
+        DEMO_FARMER_ID,
+        selectedCenterId,
+        requestedDate,
+        selectedCenter?.crop_type,
+        quantity
+      )
+
+
+      /*
+       * Save request ID so farmer can
+       * restore it after page refresh.
+       */
+
+      localStorage.setItem(
+        'farmerTokenId',
+        newToken.id
+      )
+
+
+      /*
+       * IMPORTANT:
+       *
+       * New requests start as "pending".
+       *
+       * token_number may be null until
+       * staff approves the request.
+       */
+
+      setToken({
+        id: newToken.id,
+        tokenNumber: newToken.token_number,
+        status: newToken.status,
+        centerId: newToken.center_id,
+        requestedDate: newToken.requested_date,
+        cropType: newToken.crop_type,
+        quantityKg: newToken.quantity_kg,
+        timeSlot: newToken.time_slot,
+      })
+
+
+      /*
+       * Clear form after successful request.
+       */
+
+      setRequestedDate('')
+      setQuantityKg('')
+
+    } catch (err) {
+      console.error('REQUEST TOKEN ERROR:', err)
+
+      setTokenError(
+        err.body?.detail ||
+        (err.status
+          ? `Request failed (${err.status}). Please try again.`
+          : 'Unable to reach the server. Please try again later.')
+
+      )
+    } finally {
+
+      setTokenLoading(false)
+
+    }
+
+  }, [
+    selectedCenterId,
+    requestedDate,
+    quantityKg,
+    selectedCenter,
+  ])
+
+
+  /* ─────────────────────────────────────────────
+     REFRESH TOKEN / REQUEST STATUS
+  ───────────────────────────────────────────── */
+
+  const handleRefreshToken = useCallback(async () => {
+
+    if (!token) return
+
+    setIsRefreshingToken(true)
+    setTokenError(null)
+
+    try {
+
+      const refreshedToken = await getToken(token.id)
+
+      setToken({
+        id: refreshedToken.id,
+        tokenNumber: refreshedToken.token_number,
+        status: refreshedToken.status,
+        centerId: refreshedToken.center_id,
+        requestedDate: refreshedToken.requested_date,
+        cropType: refreshedToken.crop_type,
+        quantityKg: refreshedToken.quantity_kg,
+        timeSlot: refreshedToken.time_slot,
+      })
+
+    } catch (err) {
+
+      setTokenError(
+        err.status
+          ? `Refresh failed (${err.status}). Please try again.`
+          : 'Unable to reach the server. Please try again later.'
+      )
+
+    } finally {
+
+      setIsRefreshingToken(false)
+
+    }
+
+  }, [token])
+
+
+  /* ─────────────────────────────────────────────
+     RESTORE SAVED REQUEST ON PAGE LOAD
+  ───────────────────────────────────────────── */
+
+  useEffect(() => {
+
+    const savedTokenId =
+      localStorage.getItem('farmerTokenId')
+
+    if (!savedTokenId) return
+
+    let cancelled = false
+
+
+    async function loadSavedToken() {
+
+      try {
+
+        const savedToken =
+          await getToken(savedTokenId)
+
+        if (cancelled) return
+
+
+        setToken({
+          id: savedToken.id,
+          tokenNumber: savedToken.token_number,
+          status: savedToken.status,
+          centerId: savedToken.center_id,
+          requestedDate: savedToken.requested_date,
+          cropType: savedToken.crop_type,
+          quantityKg: savedToken.quantity_kg,
+          timeSlot: savedToken.time_slot,
+        })
+
+      } catch {
+
+        if (cancelled) return
+
+        localStorage.removeItem(
+          'farmerTokenId'
+        )
+
+        setToken(null)
+      }
+    }
+
+
+    loadSavedToken()
+
+
+    return () => {
+      cancelled = true
+    }
+
+  }, [])
+
+
+  /* ─────────────────────────────────────────────
+     AUTO REFRESH EVERY 10 SECONDS
+  ───────────────────────────────────────────── */
+
+  useEffect(() => {
+
     if (!token) return
 
     const intervalId = setInterval(() => {
@@ -249,47 +444,169 @@ function FarmerDashboard() {
     return () => {
       clearInterval(intervalId)
     }
+
   }, [token, handleRefreshToken])
 
 
-  /** Resolve a center name from our loaded centers list */
+  /* ─────────────────────────────────────────────
+     CENTER NAME HELPER
+  ───────────────────────────────────────────── */
+
   function centerName(centerId) {
-    const c = centers.find((x) => x.id === centerId)
-    return c ? c.name : '—'
+
+    const center =
+      centers.find((x) => x.id === centerId)
+
+    return center
+      ? center.name
+      : '—'
   }
 
+
+  /* ═════════════════════════════════════════════
+     UI
+  ═════════════════════════════════════════════ */
+
   return (
+
     <div className="farmer-dash">
-      {/* ── Header ──────────────────────────────────────────── */}
+
+      {/* HEADER */}
+
       <header className="farmer-dash__header">
-        <h1 className="farmer-dash__title">Farmer Dashboard</h1>
+
+        <h1 className="farmer-dash__title">
+          Farmer Dashboard
+        </h1>
+
         <p className="farmer-dash__subtitle">
-          View your token status, procurement schedule, and current crop prices.
+          View your procurement request, schedule,
+          and current crop prices.
         </p>
+
       </header>
 
-      {/* ── Section 1: My Token ─────────────────────────────── */}
-      <section className="farmer-dash__section" aria-labelledby="token-heading">
-        <h2 id="token-heading" className="farmer-dash__section-title">
-          My Token
+
+      {/* ═══════════════════════════════════════
+          SECTION 1 — MY TOKEN / REQUEST
+      ═══════════════════════════════════════ */}
+
+      <section
+        className="farmer-dash__section"
+        aria-labelledby="token-heading"
+      >
+
+        <h2
+          id="token-heading"
+          className="farmer-dash__section-title"
+        >
+          My Procurement Request
         </h2>
 
+
         <div className="farmer-dash__card farmer-dash__token-card">
+
           {token ? (
+
             <>
+
+              {/* STATUS / TOKEN */}
+
               <div className="farmer-dash__token-header">
+
                 <span className="farmer-dash__token-number">
-                  #{token.tokenNumber}
+
+                  {token.tokenNumber
+                    ? `#${token.tokenNumber}`
+                    : 'Token Pending'}
+
                 </span>
-                <StatusBadge status={displayStatus(token.status)} />
+
+                <StatusBadge
+                  status={displayStatus(token.status)}
+                />
+
               </div>
 
+
+              {/* REQUEST DETAILS */}
+
               <dl className="farmer-dash__token-details">
+
                 <div className="farmer-dash__detail-row">
-                  <dt>Procurement Center</dt>
-                  <dd>{centerName(token.centerId)}</dd>
+
+                  <dt>
+                    Procurement Center
+                  </dt>
+
+                  <dd>
+                    {centerName(token.centerId)}
+                  </dd>
+
                 </div>
+
+
+                <div className="farmer-dash__detail-row">
+
+                  <dt>
+                    Crop
+                  </dt>
+
+                  <dd>
+                    {token.cropType || '—'}
+                  </dd>
+
+                </div>
+
+
+                <div className="farmer-dash__detail-row">
+
+                  <dt>
+                    Requested Date
+                  </dt>
+
+                  <dd>
+                    {token.requestedDate || '—'}
+                  </dd>
+
+                </div>
+
+
+                <div className="farmer-dash__detail-row">
+
+                  <dt>
+                    Quantity
+                  </dt>
+
+                  <dd>
+                    {token.quantityKg
+                      ? `${token.quantityKg} kg`
+                      : '—'}
+                  </dd>
+
+                </div>
+
+
+                {token.timeSlot && (
+
+                  <div className="farmer-dash__detail-row">
+
+                    <dt>
+                      Time Slot
+                    </dt>
+
+                    <dd>
+                      {token.timeSlot}
+                    </dd>
+
+                  </div>
+
+                )}
+
               </dl>
+
+
+              {/* REFRESH */}
 
               <button
                 type="button"
@@ -298,160 +615,364 @@ function FarmerDashboard() {
                 disabled={isRefreshingToken}
                 style={{ marginTop: '1rem' }}
               >
-                {isRefreshingToken ? 'Refreshing…' : 'Refresh Status'}
+
+                {isRefreshingToken
+                  ? 'Refreshing…'
+                  : 'Refresh Status'}
+
               </button>
+
             </>
+
           ) : (
+
             <p className="farmer-dash__empty-state">
-              No active token. Select a center and request one below.
+              No active procurement request.
+              Select a center, date, and quantity below.
             </p>
+
           )}
+
+
+          {/* ERROR */}
 
           {tokenError && (
-            <p className="farmer-dash__error-msg" role="alert">
+
+            <p
+              className="farmer-dash__error-msg"
+              role="alert"
+            >
               {tokenError}
             </p>
+
           )}
 
-          {/* ── Center selector ──────────────────────────────── */}
+
+          {/* ═══════════════════════════════════════
+              CENTER SELECTOR
+          ═══════════════════════════════════════ */}
+
           {centersLoading ? (
-            <p className="farmer-dash__loading-msg">Loading centers…</p>
+
+            <p className="farmer-dash__loading-msg">
+              Loading centers…
+            </p>
+
           ) : centersError ? (
-            <p className="farmer-dash__error-msg" role="alert">
+
+            <p
+              className="farmer-dash__error-msg"
+              role="alert"
+            >
               {centersError}
             </p>
+
           ) : centers.length > 0 ? (
+
             <div className="farmer-dash__center-select-row">
+
               <label
                 htmlFor="center-select"
                 className="farmer-dash__center-select-label"
               >
                 Center
               </label>
+
+
               <select
                 id="center-select"
                 className="farmer-dash__center-select"
                 value={selectedCenterId}
-                onChange={(e) => setSelectedCenterId(e.target.value)}
+                onChange={(e) =>
+                  setSelectedCenterId(e.target.value)
+                }
               >
+
                 {centers.map((c) => (
-                  <option key={c.id} value={c.id}>
+
+                  <option
+                    key={c.id}
+                    value={c.id}
+                  >
                     {c.name} — {c.crop_type}
                   </option>
+
                 ))}
+
               </select>
+
             </div>
+
           ) : (
+
             <p className="farmer-dash__empty-state">
               No procurement centers available.
             </p>
+
           )}
+
+
+          {/* ═══════════════════════════════════════
+              REQUEST DATE
+          ═══════════════════════════════════════ */}
+
+          <div className="farmer-dash__center-select-row">
+
+            <label
+              htmlFor="requested-date"
+              className="farmer-dash__center-select-label"
+            >
+              Requested Date
+            </label>
+
+            <input
+              id="requested-date"
+              type="date"
+              className="farmer-dash__center-select"
+              value={requestedDate}
+              onChange={(e) =>
+                setRequestedDate(e.target.value)
+              }
+              min={
+                new Date()
+                  .toISOString()
+                  .split('T')[0]
+              }
+            />
+
+          </div>
+
+
+          {/* ═══════════════════════════════════════
+              QUANTITY
+          ═══════════════════════════════════════ */}
+
+          <div className="farmer-dash__center-select-row">
+
+            <label
+              htmlFor="quantity-kg"
+              className="farmer-dash__center-select-label"
+            >
+              Quantity (kg)
+            </label>
+
+            <input
+              id="quantity-kg"
+              type="number"
+              className="farmer-dash__center-select"
+              value={quantityKg}
+              onChange={(e) =>
+                setQuantityKg(e.target.value)
+              }
+              min="1"
+              step="1"
+              placeholder="Enter quantity"
+            />
+
+          </div>
+
+
+          {/* REQUEST BUTTON */}
 
           <button
             type="button"
             className="farmer-dash__btn farmer-dash__btn--primary"
             onClick={handleRequestToken}
-            disabled={tokenLoading || !selectedCenterId}
+            disabled={
+              tokenLoading ||
+              !selectedCenterId ||
+              !requestedDate ||
+              !quantityKg
+            }
           >
-            {tokenLoading ? 'Requesting…' : 'Request New Token'}
+
+            {tokenLoading
+              ? 'Submitting Request…'
+              : 'Submit Procurement Request'}
+
           </button>
+
         </div>
+
       </section>
 
-      {/* ── Bottom grid: Schedule + Prices ──────────────────── */}
+
+      {/* ═══════════════════════════════════════
+          BOTTOM GRID
+      ═══════════════════════════════════════ */}
+
       <div className="farmer-dash__grid">
 
-        {/* ── Section 2: Procurement Schedule ────────────────── */}
-        <section className="farmer-dash__section" aria-labelledby="schedule-heading">
-          <h2 id="schedule-heading" className="farmer-dash__section-title">
+
+        {/* ═══════════════════════════════════════
+            PROCUREMENT SCHEDULE
+        ═══════════════════════════════════════ */}
+
+        <section
+          className="farmer-dash__section"
+          aria-labelledby="schedule-heading"
+        >
+
+          <h2
+            id="schedule-heading"
+            className="farmer-dash__section-title"
+          >
             Procurement Schedule
           </h2>
 
+
           <div className="farmer-dash__card">
+
             {centersLoading ? (
-              <p className="farmer-dash__loading-msg">Loading schedule…</p>
+
+              <p className="farmer-dash__loading-msg">
+                Loading schedule…
+              </p>
+
             ) : selectedCenter ? (
+
               <dl className="farmer-dash__schedule-details">
+
                 <div className="farmer-dash__detail-row">
                   <dt>Center</dt>
                   <dd>{selectedCenter.name}</dd>
                 </div>
+
                 <div className="farmer-dash__detail-row">
                   <dt>Location</dt>
                   <dd>{selectedCenter.location}</dd>
                 </div>
+
                 <div className="farmer-dash__detail-row">
                   <dt>Crop</dt>
                   <dd>{selectedCenter.crop_type}</dd>
                 </div>
+
                 <div className="farmer-dash__detail-row">
                   <dt>Opens</dt>
                   <dd>{selectedCenter.open_date || '—'}</dd>
                 </div>
+
                 <div className="farmer-dash__detail-row">
                   <dt>Closes</dt>
                   <dd>{selectedCenter.close_date || '—'}</dd>
                 </div>
+
                 <div className="farmer-dash__detail-row">
+
                   <dt>Status</dt>
+
                   <dd>
+
                     <StatusBadge
                       status={
-                        isCenterOpen(selectedCenter.open_date, selectedCenter.close_date)
+                        isCenterOpen(
+                          selectedCenter.open_date,
+                          selectedCenter.close_date
+                        )
                           ? 'Open'
                           : 'Closed'
                       }
                     />
+
                   </dd>
+
                 </div>
+
               </dl>
+
             ) : (
+
               <p className="farmer-dash__empty-state">
                 No centers available at this time.
               </p>
+
             )}
+
           </div>
+
         </section>
 
-        {/* ── Section 3: Crop Prices / MSP ───────────────────── */}
-        <section className="farmer-dash__section" aria-labelledby="prices-heading">
-          <h2 id="prices-heading" className="farmer-dash__section-title">
+
+        {/* ═══════════════════════════════════════
+            CROP PRICES
+        ═══════════════════════════════════════ */}
+
+        <section
+          className="farmer-dash__section"
+          aria-labelledby="prices-heading"
+        >
+
+          <h2
+            id="prices-heading"
+            className="farmer-dash__section-title"
+          >
             Crop Prices / MSP
           </h2>
 
+
           <div className="farmer-dash__card">
+
             {pricesLoading ? (
-              <p className="farmer-dash__loading-msg">Loading prices…</p>
+
+              <p className="farmer-dash__loading-msg">
+                Loading prices…
+              </p>
+
             ) : prices.length > 0 ? (
+
               <table className="farmer-dash__price-table">
+
                 <thead>
+
                   <tr>
                     <th scope="col">Crop</th>
                     <th scope="col">MSP Rate</th>
                   </tr>
+
                 </thead>
+
+
                 <tbody>
+
                   {prices.map((item) => (
+
                     <tr key={item.crop}>
-                      <td>{item.crop}</td>
+
+                      <td>
+                        {item.crop}
+                      </td>
+
                       <td className="farmer-dash__price-value">
                         {formatPrice(item.mspRate)}
                       </td>
+
                     </tr>
+
                   ))}
+
                 </tbody>
+
               </table>
+
             ) : (
+
               <p className="farmer-dash__empty-state">
                 No price data available.
               </p>
+
             )}
+
           </div>
+
         </section>
 
       </div>
+
     </div>
+
   )
 }
+
 
 export default FarmerDashboard
