@@ -23,21 +23,47 @@ Interactive API docs: http://localhost:8000/docs
 
 | Method | Path                        | Who calls it        | Body / Query                          | Returns |
 |--------|-----------------------------|----------------------|----------------------------------------|---------|
-| POST   | `/tokens`                   | Farmer (get a token) | `{farmer_id, center_id}`               | Token object (`waiting`, with `token_number`) |
+| POST   | `/tokens`                   | Farmer (submit request) | `{farmer_id, center_id, requested_date, crop_type, quantity_kg}` | New token, `status: pending` |
 | GET    | `/tokens/{token_id}`        | Farmer (check status)| —                                       | Token object |
-| PATCH  | `/tokens/{token_id}/status` | Procurement staff     | `{status}` (`waiting/called/completed/cancelled`) | Updated token object |
-| GET    | `/centers`                  | Farmer (browse)      | optional `?crop_type=`                 | List of centers (name, crop_type, msp_rate, open/close dates) |
+| PATCH  | `/tokens/{token_id}/approve`| Procurement staff     | — (no body)                             | Token with `status: waiting`, `token_number`, `time_slot` assigned |
+| PATCH  | `/tokens/{token_id}/reject` | Procurement staff     | — (no body)                             | Token with `status: rejected` |
+| PATCH  | `/tokens/{token_id}/cancel` | Farmer or staff       | — (no body)                             | Token with `status: cancelled` |
+| PATCH  | `/tokens/{token_id}/status` | Procurement staff     | `{status}` — only `waiting→called` or `called→completed` | Updated token |
+| GET    | `/centers`                  | Farmer (browse)      | optional `?crop_type=`                 | List of centers |
 | GET    | `/centers/{center_id}`      | Farmer / staff        | —                                       | Single center object |
-| GET    | `/centers/{center_id}/queue`| Procurement staff     | optional `?status=`                    | List of tokens for that center, ordered by `token_number` |
+| POST   | `/centers`                  | Admin (create center) | full center fields incl. `daily_capacity_kg` | New center object |
+| PATCH  | `/centers/{center_id}`      | Admin (edit center)   | any subset of center fields            | Updated center object |
+| GET    | `/centers/{center_id}/queue`| Procurement staff     | optional `?status=`                    | List of tokens for that center |
+| GET    | `/users`                    | Admin (manage users)  | optional `?role=admin\|procurement\|farmer` | List of profiles |
 | GET    | `/health`                   | anyone                | —                                       | `{"status": "ok"}` |
 
-Full request/response schemas are auto-generated at `/docs` — no need to hand-describe fields, just point teammates there.
+Full request/response schemas are auto-generated at `/docs`.
+
+## Farmer request → approval workflow (v3)
+
+1. Farmer submits `POST /tokens` with `center_id`, `requested_date`, `crop_type`, `quantity_kg` → status `pending`, no `token_number`/`time_slot` yet.
+2. Staff view pending requests: `GET /centers/{id}/queue?status=pending`.
+3. Staff call `PATCH /tokens/{id}/approve` — this checks the center's `daily_capacity_kg` isn't exceeded for that date, then assigns `token_number` + `time_slot` and moves status to `waiting`. Fails with `400` if capacity would be exceeded.
+4. Or staff call `PATCH /tokens/{id}/reject` — moves to `rejected`, no side effects.
+5. From `waiting`, staff progress the token via `PATCH /tokens/{id}/status` (`waiting→called`, then `called→completed`).
+6. `PATCH /tokens/{id}/cancel` works from `pending` or `waiting` — capacity and the farmer's day-slot free up automatically since capacity/limit checks only count `pending`/`waiting`/`called`.
+
+**Limits enforced at request time (`POST /tokens`):**
+- One active request per farmer per `requested_date`, across any center
+- Max 3 active (`pending`/`waiting`/`called`) requests per farmer at once
+
+## Deployment (Railway)
+
+`Procfile` and `railway.json` are both included — Railway should auto-detect
+the Python app via Nixpacks and use either one to start it. You'll need to
+set `SUPABASE_URL` and `SUPABASE_KEY` as environment variables in the
+Railway project dashboard (not from `.env` — that file isn't committed).
 
 ## Incomplete / temporary — flag before demo day
 
-- **No auth yet.** `farmer_id` / `center_id` are passed directly in request bodies instead of being read from a logged-in session. Once auth is wired up (team lead), these endpoints will likely need to switch to reading identity from a validated token instead of trusting the client.
-- **`users` table shape is provisional.** It's a standalone table with a `role` column. If Supabase Auth ends up being used for login, whoever owns auth may prefer a `profiles` table keyed off `auth.users(id)` instead — confirm before building heavily on top of it.
-- **`token_number` generation is naive**: counts today's tokens for a center + 1, no locking. Fine for a demo with light concurrent use; would double-assign under real concurrent load.
-- **No status-transition validation** on `PATCH /tokens/{id}/status` — staff can technically set any status in any order.
-- **CORS is wide open** (`allow_origins=["*"]`) — fine for local dev, should be narrowed if this ever gets deployed somewhere public.
-- **No pagination** on `/centers` or `/centers/{id}/queue` — assumes small demo dataset.
+- **No auth yet.** All endpoints — including admin ones — trust whatever the client sends, with no role check. JWT verification is planned once login is working on the auth side.
+- **`token_number` and `time_slot` assignment has no locking** — two staff approving simultaneously for the same center+date could theoretically race. Fine for demo load.
+- **Time slots are fixed 25-min spacing from 9:00 AM**, not configurable per center yet — flagged for team lead to confirm.
+- **CORS is wide open** (`allow_origins=["*"]`) — narrow this once the real frontend URL (Vercel) is known.
+- **No pagination** on `/centers`, `/centers/{id}/queue`, or `/users` — assumes small demo dataset.
+- **`profiles.id` is not auto-generated** — it must match a real `auth.users(id)` row.
