@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "./supabaseClient";
+import { useNavigate } from "react-router-dom";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -7,41 +8,63 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const navigate = useNavigate();
+
   const handleLogin = async (e) => {
     e.preventDefault();
+
     setError("");
     setLoading(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    // 1. Login using Supabase Auth
+    const { data, error: loginError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    setLoading(false);
-
-    if (error) {
-      setError(error.message);
+    // Login failed
+    if (loginError) {
+      setError(loginError.message);
+      setLoading(false);
       return;
     }
 
-    console.log("Logged in user:", data.user);
-    console.log("Session:", data.session);
+    // 2. Get the user's role from the profiles table
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", data.user.id)
+      .single();
 
-    // TODO: once profiles table is ready, look up role here and redirect:
-    // const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single()
-    // then redirect based on profile.role → /farmer, /staff, /admin
+    // Could not find profile
+    if (profileError || !profile) {
+      setError("Could not determine user role");
+      setLoading(false);
+      return;
+    }
 
-    // Temporary stub for now, so you can keep building redirect logic:
-    const fakeRole = "farmer"; // hardcode 'farmer' / 'staff' / 'admin' to test each path
-    console.log("Stubbed role (replace once profiles lands):", fakeRole);
+    // 3. Redirect according to role
+    if (profile.role === "farmer") {
+      navigate("/farmer");
+    } else if (profile.role === "procurement") {
+      navigate("/staff");
+    } else if (profile.role === "admin") {
+      navigate("/admin");
+    } else {
+      setError("Invalid user role");
+    }
+
+    setLoading(false);
   };
 
   return (
     <div style={{ maxWidth: 320, margin: "80px auto" }}>
       <h2>Login</h2>
+
       <form onSubmit={handleLogin}>
         <div style={{ marginBottom: 12 }}>
           <label>Email</label>
+
           <input
             type="email"
             value={email}
@@ -50,8 +73,10 @@ export default function LoginPage() {
             style={{ width: "100%", padding: 8 }}
           />
         </div>
+
         <div style={{ marginBottom: 12 }}>
           <label>Password</label>
+
           <input
             type="password"
             value={password}
@@ -60,7 +85,9 @@ export default function LoginPage() {
             style={{ width: "100%", padding: 8 }}
           />
         </div>
+
         {error && <p style={{ color: "red" }}>{error}</p>}
+
         <button
           type="submit"
           disabled={loading}
