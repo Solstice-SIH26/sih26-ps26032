@@ -81,4 +81,14 @@ class ProfileOut(BaseModel):
     phone: Optional[str] = None
     role: Role
     center_id: Optional[uuid.UUID] = None
+    is_active: bool
     created_at: datetime
+
+
+class ProfileUpdate(BaseModel):
+    # All fields optional — PATCH only updates what's provided.
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[Role] = None
+    center_id: Optional[uuid.UUID] = None
+    is_active: Optional[bool] = None
