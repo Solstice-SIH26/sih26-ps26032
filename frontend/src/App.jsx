@@ -5,7 +5,7 @@ import ProtectedRoute from "./ProtectedRoute";
 
 import FarmerDashboard from "./pages/farmer/FarmerDashboard";
 import StaffDashboard from "./pages/staff/StaffDashboard";
-import AdminPage from "./AdminPage";
+import AdminDashboard from "./pages/admin/AdminDashboard";
 
 function App() {
   return (
