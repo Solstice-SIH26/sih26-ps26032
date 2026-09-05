@@ -9,6 +9,10 @@ endpoint below — including admin ones. IDs are passed directly by the
 client. JWT verification (Supabase Auth) is planned once login is working
 on the auth side.
 
+The one exception is the new voice endpoint in section 5, which is called
+server-to-server by Vapi and is protected by a static bearer secret
+(`VAPI_WEBHOOK_SECRET`) rather than a farmer JWT.
+
 ---
 
 ## 1. Token statuses (exact enum)
@@ -182,3 +186,85 @@ Fixed-interval spacing in **approval order**, not a scheduling algorithm:
 - ... i.e. `09:00 + (approval_position - 1) × 25 minutes`
 
 Not configurable per center yet. If your team wants different spacing or center-specific hours, that's a small follow-up change — ask.
+
+---
+
+## 5. Voice (Vapi) — caller identification & context
+
+**Milestone 1 only.** This endpoint identifies the calling farmer and
+reports their active requests. It does **not** create, approve, reject,
+or change any token — that's a later milestone. It's called by the Vapi
+server/webhook layer, not directly by farmers or the frontend.
+
+### `GET /voice/context`
+
+**Auth:** `Authorization: Bearer <VAPI_WEBHOOK_SECRET>` — a server-to-server
+secret, distinct from farmer JWTs (which aren't implemented yet anyway).
+Missing/wrong header → `401`. If the server itself has no
+`VAPI_WEBHOOK_SECRET` configured → `500`.
+
+**Query parameters:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `phone` | string | yes | Caller's number. Accepts a bare 10-digit Indian mobile number, a `91`-prefixed number, or full E.164 (`+91...`). Normalized server-side. |
+
+**Phone normalization examples:**
+9876543210 -> +919876543210
+919876543210 -> +919876543210
++919876543210 -> +919876543210 (unchanged)
+
+Anything that doesn't match one of these shapes → `400`.
+
+**Resolution logic:**
+1. Normalize `phone` to E.164.
+2. Look up `profiles` for a row with that `phone` and `role = 'farmer'`.
+3. **Match found** → use that farmer. `demo_mode_used: false`.
+4. **No match, `DEMO_MODE=true`** → use the farmer identified by
+   `DEMO_FARMER_ID`. `demo_mode_used: true`. The demo farmer is a normal
+   `profiles` row with `role='farmer'` — it goes through the exact same
+   `POST /tokens` limits (max 3 active, one per day) as any real farmer;
+   nothing about those rules is bypassed for demo calls.
+5. **No match, `DEMO_MODE=false`** → `404`.
+
+**Success response — `200 OK`:**
+```json
+{
+  "demo_mode_used": false,
+  "caller_number": "+919876543210",
+  "farmer_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "farmer_name": "Ramesh Kumar",
+  "active_tokens": [
+    {
+      "id": "a1b2c3d4-...",
+      "center_id": "9c858901-...",
+      "center_name": "Karnal Mandi Center 3",
+      "requested_date": "2026-09-10",
+      "crop_type": "Wheat",
+      "quantity_kg": 500,
+      "token_number": null,
+      "time_slot": null,
+      "status": "pending"
+    }
+  ]
+}
+```
+`active_tokens` includes only `pending`, `waiting`, and `called` requests
+(same `ACTIVE_STATUSES` used by `POST /tokens`'s own limit checks) — a
+farmer with none gets an empty list, not an error. `center_name` is
+pulled in via the existing `tokens.center_id -> procurement_centers.id`
+relationship, so the caller doesn't need a second lookup.
+
+**Error responses:**
+- `400 Bad Request` — `{"detail": "Could not recognize this as an Indian phone number."}`
+- `401 Unauthorized` — `{"detail": "Missing or invalid Authorization header"}`
+- `404 Not Found` — `{"detail": "No farmer is registered with this number."}` (only when `DEMO_MODE=false`)
+- `500 Internal Server Error` — server misconfiguration, e.g.:
+  - `{"detail": "VAPI_WEBHOOK_SECRET is not configured on the server."}`
+  - `{"detail": "DEMO_MODE is enabled but DEMO_FARMER_ID is not configured."}`
+  - `{"detail": "DEMO_FARMER_ID is not a valid UUID."}`
+  - `{"detail": "DEMO_FARMER_ID does not match any farmer profile."}`
+
+**Out of scope for this milestone (tracked separately):** the
+`POST /webhooks/vapi` event/tool-call handler, token creation or
+cancellation via voice, call analytics/transcript storage.
