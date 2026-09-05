@@ -7,6 +7,7 @@ import FarmerDashboard from "./pages/farmer/FarmerDashboard";
 import StaffDashboard from "./pages/staff/StaffDashboard";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 
+
 function App() {
   return (
     <BrowserRouter>
@@ -37,7 +38,7 @@ function App() {
           path="/admin"
           element={
             <ProtectedRoute allowedRole="admin">
-              <AdminPage />
+              <AdminDashboard />
             </ProtectedRoute>
           }
         />
